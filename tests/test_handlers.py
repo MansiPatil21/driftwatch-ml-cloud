@@ -76,7 +76,7 @@ class TestDriftDetector(unittest.TestCase):
 
         response = drift_module.handler({}, {})
         body = json.loads(response['body'])
-        self.assertTrue(body['alert_fired'])
+        self.assertTrue(len(body['alerts_fired']) > 0)
 
 
 if __name__ == '__main__':
