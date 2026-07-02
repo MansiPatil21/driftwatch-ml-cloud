@@ -1,0 +1,797 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Model Monitoring Pipeline - CSCI 5411 Term Project (Full Feature Set)'
+
+Parameters:
+  AlertEmail:
+    Type: String
+    Default: 'mansican908@gmail.com'
+    Description: Email address for drift and anomaly alerts
+  LabRoleArn:
+    Type: String
+    Default: 'arn:aws:iam::494164398539:role/LabRole'
+    Description: Pre-existing AWS Academy LabRole (IAM role creation restricted in Learner Lab)
+
+Resources:
+
+  # ═══════════════════════════════════════════════════════════
+  # STORAGE
+  # ═══════════════════════════════════════════════════════════
+
+  PredictionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ml-predictions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: model_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: model_id
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  ModelConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ml-model-config
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: model_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: model_id
+          KeyType: HASH
+
+  GroundTruthTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ml-ground-truth
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: prediction_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: prediction_id
+          KeyType: HASH
+
+  ReportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'ml-monitoring-reports-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: ArchiveOldReports
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: GLACIER
+
+  # ═══════════════════════════════════════════════════════════
+  # KINESIS DATA STREAMS (high-volume ingestion path)
+  # ═══════════════════════════════════════════════════════════
+
+  PredictionsStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: ml-predictions-stream
+      ShardCount: 1
+      RetentionPeriodHours: 24
+
+  # ═══════════════════════════════════════════════════════════
+  # ALERTING
+  # ═══════════════════════════════════════════════════════════
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ml-drift-alerts
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlertEmail
+
+  # ═══════════════════════════════════════════════════════════
+  # IAM NOTE
+  # AWS Academy restricts iam:CreateRole. We use the pre-existing
+  # LabRole. In production, a least-privilege role would be created
+  # per Lambda with only the permissions each function needs.
+  # ═══════════════════════════════════════════════════════════
+
+  # ═══════════════════════════════════════════════════════════
+  # LAMBDA FUNCTIONS
+  # ═══════════════════════════════════════════════════════════
+
+  IngestorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ml-prediction-ingestor
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !Ref LabRoleArn
+      Timeout: 30
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref PredictionsTable
+      Code:
+        ZipFile: |
+          import json, boto3, os, uuid
+          from datetime import datetime
+          dynamodb = boto3.resource('dynamodb')
+          def handler(event, context):
+              table = dynamodb.Table(os.environ['TABLE_NAME'])
+              try:
+                  body = json.loads(event.get('body', '{}'))
+              except json.JSONDecodeError:
+                  return {'statusCode': 400, 'body': json.dumps({'error': 'Invalid JSON'})}
+              if not all([body.get('model_id'), body.get('prediction'), body.get('confidence') is not None]):
+                  return {'statusCode': 400, 'body': json.dumps({'error': 'model_id, prediction, confidence required'})}
+              item = {
+                  'model_id': body['model_id'], 'timestamp': datetime.utcnow().isoformat(),
+                  'prediction': body['prediction'], 'confidence': str(body['confidence']),
+                  'id': str(uuid.uuid4())
+              }
+              table.put_item(Item=item)
+              return {'statusCode': 200, 'headers': {'Content-Type': 'application/json'},
+                      'body': json.dumps({'message': 'Prediction logged', 'id': item['id']})}
+
+  DriftDetectorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ml-drift-detector
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !Ref LabRoleArn
+      Timeout: 120
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref PredictionsTable
+          SNS_TOPIC_ARN: !Ref AlertTopic
+          CONFIDENCE_THRESHOLD: '0.75'
+          MODEL_CONFIG_TABLE: !Ref ModelConfigTable
+      Code:
+        ZipFile: |
+          import json, boto3, os, math
+          from datetime import datetime, timedelta
+          dynamodb = boto3.resource('dynamodb')
+          sns = boto3.client('sns')
+          cloudwatch = boto3.client('cloudwatch')
+          def compute_psi(baseline, current, buckets=10):
+              def hist(vals, edges):
+                  counts = [0]*len(edges)
+                  for v in vals:
+                      for i,e in enumerate(edges):
+                          if v<=e: counts[i]+=1; break
+                      else: counts[-1]+=1
+                  t=sum(counts) or 1
+                  return [c/t for c in counts]
+              edges=[i/buckets for i in range(1,buckets+1)]
+              b=hist(baseline,edges); c=hist(current,edges)
+              return round(sum((ci-bi)*math.log(max(ci,0.0001)/max(bi,0.0001)) for bi,ci in zip(b,c)),4)
+          def handler(event, context):
+              table=dynamodb.Table(os.environ['TABLE_NAME'])
+              threshold=float(os.environ.get('CONFIDENCE_THRESHOLD','0.75'))
+              cutoff=(datetime.utcnow()-timedelta(hours=1)).isoformat()
+              items=table.scan(FilterExpression='#ts > :c',ExpressionAttributeNames={'#ts':'timestamp'},ExpressionAttributeValues={':c':cutoff}).get('Items',[])
+              if not items: return {'statusCode':200,'body':'No predictions'}
+              models={}
+              for i in items: models.setdefault(i.get('model_id','unknown'),[]).append(float(i.get('confidence',0)))
+              alerts=[]
+              for mid,confs in models.items():
+                  avg=sum(confs)/len(confs)
+                  baseline=[0.85+(i%10)*0.01 for i in range(50)]
+                  psi=compute_psi(baseline,confs)
+                  cloudwatch.put_metric_data(Namespace='MLMonitoring',MetricData=[
+                      {'MetricName':'AverageConfidence','Value':avg,'Unit':'None','Dimensions':[{'Name':'ModelId','Value':mid}]},
+                      {'MetricName':'PSIScore','Value':psi,'Unit':'None','Dimensions':[{'Name':'ModelId','Value':mid}]}])
+                  if avg<threshold or psi>0.2:
+                      reasons=[]
+                      if avg<threshold: reasons.append(f'avg confidence {avg:.3f} < {threshold}')
+                      if psi>0.2: reasons.append(f'PSI={psi} > 0.2 (distribution shift)')
+                      sns.publish(TopicArn=os.environ['SNS_TOPIC_ARN'],Subject=f'DRIFT ALERT: {mid}',
+                          Message=f'DRIFT DETECTED\nModel: {mid}\n'+'\n'.join(reasons)+f'\nPredictions: {len(confs)}\nTime: {datetime.utcnow().isoformat()}')
+                      alerts.append(mid)
+              return {'statusCode':200,'body':json.dumps({'alerts_fired':alerts,'models_checked':list(models.keys())})}
+
+  AnomalyDetectorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ml-anomaly-detector
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !Ref LabRoleArn
+      Timeout: 60
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref PredictionsTable
+          SNS_TOPIC_ARN: !Ref AlertTopic
+      Code:
+        ZipFile: |
+          import json, boto3, os
+          from datetime import datetime, timedelta
+          dynamodb=boto3.resource('dynamodb'); sns=boto3.client('sns'); cloudwatch=boto3.client('cloudwatch')
+          def handler(event, context):
+              table=dynamodb.Table(os.environ['TABLE_NAME'])
+              cutoff=(datetime.utcnow()-timedelta(minutes=15)).isoformat()
+              volume=len(table.scan(FilterExpression='#ts > :c',ExpressionAttributeNames={'#ts':'timestamp'},ExpressionAttributeValues={':c':cutoff}).get('Items',[]))
+              cloudwatch.put_metric_data(Namespace='MLMonitoring',MetricData=[{'MetricName':'PredictionVolume','Value':volume,'Unit':'Count'}])
+              if volume==0:
+                  sns.publish(TopicArn=os.environ['SNS_TOPIC_ARN'],Subject='ANOMALY: No predictions in 15 min',
+                      Message=f'No predictions received in last 15 minutes.\nModel may be offline.\nTime: {datetime.utcnow().isoformat()}')
+              return {'statusCode':200,'body':json.dumps({'volume_last_15min':volume,'alert_fired':volume==0})}
+
+  ReportGeneratorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ml-report-generator
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !Ref LabRoleArn
+      Timeout: 120
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref PredictionsTable
+          BUCKET_NAME: !Ref ReportsBucket
+          GROUND_TRUTH_TABLE: !Ref GroundTruthTable
+      Code:
+        ZipFile: |
+          import json, boto3, os
+          from datetime import datetime, timedelta
+          from collections import Counter
+          dynamodb=boto3.resource('dynamodb'); s3=boto3.client('s3')
+          def handler(event, context):
+              table=dynamodb.Table(os.environ['TABLE_NAME'])
+              gt_table=dynamodb.Table(os.environ['GROUND_TRUTH_TABLE'])
+              cutoff=(datetime.utcnow()-timedelta(hours=24)).isoformat()
+              items=table.scan(FilterExpression='#ts > :c',ExpressionAttributeNames={'#ts':'timestamp'},ExpressionAttributeValues={':c':cutoff}).get('Items',[])
+              confs=[float(i.get('confidence',0)) for i in items]
+              preds=[i.get('prediction','') for i in items]
+              gt_items=gt_table.scan().get('Items',[])
+              accuracy=sum(1 for r in gt_items if r.get('correct'))/len(gt_items) if gt_items else None
+              report={'date':datetime.utcnow().strftime('%Y-%m-%d'),'total_predictions':len(items),
+                  'avg_confidence':round(sum(confs)/len(confs),3) if confs else 0,
+                  'min_confidence':round(min(confs),3) if confs else 0,
+                  'max_confidence':round(max(confs),3) if confs else 0,
+                  'prediction_distribution':dict(Counter(preds)),
+                  'ground_truth_accuracy':round(accuracy,3) if accuracy else 'no ground truth yet',
+                  'generated_at':datetime.utcnow().isoformat()}
+              key=f"reports/{report['date']}/daily-report.json"
+              s3.put_object(Bucket=os.environ['BUCKET_NAME'],Key=key,Body=json.dumps(report,indent=2),ContentType='application/json')
+              return {'statusCode':200,'body':json.dumps(report)}
+
+  KinesisProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ml-kinesis-processor
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !Ref LabRoleArn
+      Timeout: 60
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref PredictionsTable
+      Code:
+        ZipFile: |
+          import json, boto3, os, uuid, base64
+          from datetime import datetime
+          dynamodb=boto3.resource('dynamodb'); cloudwatch=boto3.client('cloudwatch')
+          def handler(event, context):
+              table=dynamodb.Table(os.environ['TABLE_NAME'])
+              processed=0; failed=0; items=[]
+              for record in event.get('Records',[]):
+                  try:
+                      body=json.loads(base64.b64decode(record['kinesis']['data']).decode('utf-8'))
+                      items.append({'model_id':body.get('model_id','unknown'),'timestamp':datetime.utcnow().isoformat(),
+                          'prediction':body.get('prediction',''),'confidence':str(body.get('confidence',0)),
+                          'id':str(uuid.uuid4()),'source':'kinesis'})
+                      processed+=1
+                  except Exception as e:
+                      print(f"Error: {e}"); failed+=1
+              with table.batch_writer() as batch:
+                  for item in items: batch.put_item(Item=item)
+              cloudwatch.put_metric_data(Namespace='MLMonitoring',MetricData=[
+                  {'MetricName':'KinesisProcessed','Value':processed,'Unit':'Count'},
+                  {'MetricName':'KinesisFailed','Value':failed,'Unit':'Count'}])
+              return {'statusCode':200,'processed':processed,'failed':failed}
+
+  GroundTruthFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ml-ground-truth
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !Ref LabRoleArn
+      Timeout: 30
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref PredictionsTable
+          GROUND_TRUTH_TABLE: !Ref GroundTruthTable
+      Code:
+        ZipFile: |
+          import json, boto3, os
+          from datetime import datetime
+          dynamodb=boto3.resource('dynamodb'); cloudwatch=boto3.client('cloudwatch')
+          def handler(event, context):
+              p_table=dynamodb.Table(os.environ['TABLE_NAME'])
+              gt_table=dynamodb.Table(os.environ['GROUND_TRUTH_TABLE'])
+              try: body=json.loads(event.get('body') or '{}')
+              except: return {'statusCode':400,'body':json.dumps({'error':'Invalid JSON'})}
+              pid=body.get('prediction_id'); mid=body.get('model_id'); actual=body.get('actual_label')
+              if not all([pid,mid,actual]): return {'statusCode':400,'body':json.dumps({'error':'prediction_id, model_id, actual_label required'})}
+              matches=p_table.scan(FilterExpression='#id = :pid',ExpressionAttributeNames={'#id':'id'},ExpressionAttributeValues={':pid':pid}).get('Items',[])
+              if not matches: return {'statusCode':404,'body':json.dumps({'error':f'Prediction {pid} not found'})}
+              predicted=matches[0].get('prediction','')
+              correct=predicted==actual
+              gt_table.put_item(Item={'prediction_id':pid,'model_id':mid,'predicted':predicted,'actual':actual,'correct':correct,'timestamp':datetime.utcnow().isoformat()})
+              all_gt=gt_table.scan(FilterExpression='model_id = :m',ExpressionAttributeValues={':m':mid}).get('Items',[])
+              if all_gt:
+                  acc=sum(1 for r in all_gt if r.get('correct'))/len(all_gt)
+                  cloudwatch.put_metric_data(Namespace='MLMonitoring',MetricData=[{'MetricName':'ModelAccuracy','Value':acc,'Unit':'None','Dimensions':[{'Name':'ModelId','Value':mid}]}])
+              return {'statusCode':200,'headers':{'Content-Type':'application/json'},
+                  'body':json.dumps({'message':'Ground truth recorded','correct':correct,'predicted':predicted,'actual':actual})}
+
+  ModelConfigFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ml-model-config
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !Ref LabRoleArn
+      Timeout: 30
+      Environment:
+        Variables:
+          MODEL_CONFIG_TABLE: !Ref ModelConfigTable
+      Code:
+        ZipFile: |
+          import json, boto3, os
+          dynamodb=boto3.resource('dynamodb')
+          def handler(event, context):
+              table=dynamodb.Table(os.environ['MODEL_CONFIG_TABLE'])
+              method=event.get('httpMethod','GET')
+              mid=(event.get('pathParameters') or {}).get('model_id','')
+              if not mid: return {'statusCode':400,'body':json.dumps({'error':'model_id required'})}
+              if method=='GET':
+                  item=table.get_item(Key={'model_id':mid}).get('Item')
+                  return {'statusCode':200 if item else 404,'body':json.dumps(item or {'error':'Not found'})}
+              if method=='POST':
+                  body=json.loads(event.get('body') or '{}')
+                  item={'model_id':mid,'confidence_threshold':str(body.get('confidence_threshold',0.75)),
+                      'psi_threshold':str(body.get('psi_threshold',0.2)),'description':body.get('description','')}
+                  table.put_item(Item=item)
+                  return {'statusCode':200,'body':json.dumps({'message':f'Config saved for {mid}'})}
+              return {'statusCode':405,'body':json.dumps({'error':'Method not allowed'})}
+
+  DriftResponderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ml-drift-responder
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !Ref LabRoleArn
+      Timeout: 30
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref AlertTopic
+          TABLE_NAME: !Ref PredictionsTable
+      Code:
+        ZipFile: |
+          import json, boto3, os
+          from datetime import datetime, timedelta
+          dynamodb=boto3.resource('dynamodb'); sns=boto3.client('sns')
+          def handler(event, context):
+              mid=event.get('model_id','unknown'); stage=event.get('stage','check'); hours=event.get('drift_hours',1)
+              topic=os.environ['SNS_TOPIC_ARN']
+              if stage=='check':
+                  still=_drifting(mid)
+                  return {'model_id':mid,'stage':'escalate' if still else 'resolve','drift_hours':hours+1,'still_drifting':still}
+              if stage=='escalate':
+                  sns.publish(TopicArn=topic,Subject=f'ESCALATION: {mid} drifting {hours}h',
+                      Message=f'Model {mid} has been drifting for {hours} hours.\nImmediate retraining recommended.\n{datetime.utcnow().isoformat()}')
+                  return {'model_id':mid,'stage':'check','drift_hours':hours,'escalated':True}
+              if stage=='resolve':
+                  sns.publish(TopicArn=topic,Subject=f'RESOLVED: {mid} drift cleared',
+                      Message=f'Model {mid} returned to healthy confidence.\nDrift lasted ~{hours} hours.\n{datetime.utcnow().isoformat()}')
+                  return {'model_id':mid,'resolved':True}
+              return {'error':'unknown stage'}
+          def _drifting(mid):
+              try:
+                  table=dynamodb.Table(os.environ['TABLE_NAME'])
+                  cutoff=(datetime.utcnow()-timedelta(hours=1)).isoformat()
+                  items=table.scan(FilterExpression='model_id=:m AND #ts>:c',ExpressionAttributeNames={'#ts':'timestamp'},ExpressionAttributeValues={':m':mid,':c':cutoff}).get('Items',[])
+                  if not items: return False
+                  return sum(float(i.get('confidence',0)) for i in items)/len(items)<0.75
+              except: return True
+
+  # ═══════════════════════════════════════════════════════════
+  # KINESIS → LAMBDA TRIGGER
+  # ═══════════════════════════════════════════════════════════
+
+  KinesisEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt PredictionsStream.Arn
+      FunctionName: !GetAtt KinesisProcessorFunction.Arn
+      StartingPosition: LATEST
+      BatchSize: 100
+
+  # ═══════════════════════════════════════════════════════════
+  # STEP FUNCTIONS — Automated Drift Response Workflow
+  # ═══════════════════════════════════════════════════════════
+
+  DriftResponseStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: ml-drift-response-workflow
+      RoleArn: !Ref LabRoleArn
+      Definition:
+        Comment: "Automated drift response — check, escalate, or resolve"
+        StartAt: CheckDrift
+        States:
+          CheckDrift:
+            Type: Task
+            Resource: !GetAtt DriftResponderFunction.Arn
+            Parameters:
+              model_id.$: "$.model_id"
+              stage: "check"
+              drift_hours.$: "$.drift_hours"
+            ResultPath: "$.result"
+            Next: IsDriftResolved
+          IsDriftResolved:
+            Type: Choice
+            Choices:
+              - Variable: "$.result.still_drifting"
+                BooleanEquals: false
+                Next: ResolveDrift
+            Default: EscalateDrift
+          EscalateDrift:
+            Type: Task
+            Resource: !GetAtt DriftResponderFunction.Arn
+            Parameters:
+              model_id.$: "$.model_id"
+              stage: "escalate"
+              drift_hours.$: "$.result.drift_hours"
+            Next: WaitBeforeRecheck
+          WaitBeforeRecheck:
+            Type: Wait
+            Seconds: 3600
+            Next: CheckDrift
+          ResolveDrift:
+            Type: Task
+            Resource: !GetAtt DriftResponderFunction.Arn
+            Parameters:
+              model_id.$: "$.model_id"
+              stage: "resolve"
+              drift_hours.$: "$.result.drift_hours"
+            End: true
+
+  # ═══════════════════════════════════════════════════════════
+  # API GATEWAY
+  # ═══════════════════════════════════════════════════════════
+
+  MonitoringAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: ml-monitoring-api
+      Description: ML Model Monitoring — predictions, ground truth, model config
+
+  # /predictions
+  PredictionsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MonitoringAPI
+      ParentId: !GetAtt MonitoringAPI.RootResourceId
+      PathPart: predictions
+
+  PredictionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MonitoringAPI
+      ResourceId: !Ref PredictionsResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${IngestorFunction.Arn}/invocations'
+
+  # /ground-truth
+  GroundTruthResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MonitoringAPI
+      ParentId: !GetAtt MonitoringAPI.RootResourceId
+      PathPart: ground-truth
+
+  GroundTruthMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MonitoringAPI
+      ResourceId: !Ref GroundTruthResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GroundTruthFunction.Arn}/invocations'
+
+  # /models/{model_id}/config
+  ModelsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MonitoringAPI
+      ParentId: !GetAtt MonitoringAPI.RootResourceId
+      PathPart: models
+
+  ModelIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MonitoringAPI
+      ParentId: !Ref ModelsResource
+      PathPart: '{model_id}'
+
+  ModelConfigResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MonitoringAPI
+      ParentId: !Ref ModelIdResource
+      PathPart: config
+
+  ModelConfigGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MonitoringAPI
+      ResourceId: !Ref ModelConfigResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ModelConfigFunction.Arn}/invocations'
+
+  ModelConfigPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MonitoringAPI
+      ResourceId: !Ref ModelConfigResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ModelConfigFunction.Arn}/invocations'
+
+  APIDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - PredictionsMethod
+      - GroundTruthMethod
+      - ModelConfigGetMethod
+      - ModelConfigPostMethod
+    Properties:
+      RestApiId: !Ref MonitoringAPI
+      StageName: prod
+
+  # ── API Key + Usage Plan ───────────────────────────────────
+
+  MonitoringAPIKey:
+    Type: AWS::ApiGateway::ApiKey
+    DependsOn: APIDeployment
+    Properties:
+      Name: ml-monitoring-api-key
+      Enabled: true
+      StageKeys:
+        - RestApiId: !Ref MonitoringAPI
+          StageName: prod
+
+  MonitoringUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn: APIDeployment
+    Properties:
+      UsagePlanName: ml-monitoring-usage-plan
+      Throttle:
+        RateLimit: 100
+        BurstLimit: 200
+      Quota:
+        Limit: 10000
+        Period: DAY
+      ApiStages:
+        - ApiId: !Ref MonitoringAPI
+          Stage: prod
+
+  UsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref MonitoringAPIKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref MonitoringUsagePlan
+
+  # ── Lambda permissions for API Gateway ─────────────────────
+
+  IngestorAPIPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref IngestorFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MonitoringAPI}/*/*'
+
+  GroundTruthAPIPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GroundTruthFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MonitoringAPI}/*/*'
+
+  ModelConfigAPIPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ModelConfigFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MonitoringAPI}/*/*'
+
+  # ═══════════════════════════════════════════════════════════
+  # EVENTBRIDGE SCHEDULERS
+  # ═══════════════════════════════════════════════════════════
+
+  DriftDetectorRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: drift-detector-hourly
+      ScheduleExpression: rate(1 hour)
+      State: ENABLED
+      Targets:
+        - Id: DriftDetectorTarget
+          Arn: !GetAtt DriftDetectorFunction.Arn
+
+  DriftDetectorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DriftDetectorFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt DriftDetectorRule.Arn
+
+  AnomalyDetectorRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: anomaly-detector-15min
+      ScheduleExpression: rate(15 minutes)
+      State: ENABLED
+      Targets:
+        - Id: AnomalyDetectorTarget
+          Arn: !GetAtt AnomalyDetectorFunction.Arn
+
+  AnomalyDetectorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AnomalyDetectorFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AnomalyDetectorRule.Arn
+
+  ReportGeneratorRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: report-generator-daily
+      ScheduleExpression: cron(0 0 * * ? *)
+      State: ENABLED
+      Targets:
+        - Id: ReportGeneratorTarget
+          Arn: !GetAtt ReportGeneratorFunction.Arn
+
+  ReportGeneratorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ReportGeneratorFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ReportGeneratorRule.Arn
+
+  # ═══════════════════════════════════════════════════════════
+  # CLOUDWATCH — Dashboard + Alarms
+  # ═══════════════════════════════════════════════════════════
+
+  MonitoringDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: MLMonitoringDashboard
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {"type":"metric","x":0,"y":0,"width":12,"height":6,
+             "properties":{"metrics":[["MLMonitoring","AverageConfidence"]],"title":"Average Confidence Score","period":3600,"stat":"Average","region":"${AWS::Region}","view":"timeSeries"}},
+            {"type":"metric","x":12,"y":0,"width":12,"height":6,
+             "properties":{"metrics":[["MLMonitoring","PSIScore"]],"title":"PSI Drift Score (>0.2 = significant)","period":3600,"stat":"Average","region":"${AWS::Region}","view":"timeSeries"}},
+            {"type":"metric","x":0,"y":6,"width":12,"height":6,
+             "properties":{"metrics":[["MLMonitoring","PredictionVolume"]],"title":"Prediction Volume per 15 min","period":900,"stat":"Sum","region":"${AWS::Region}","view":"timeSeries"}},
+            {"type":"metric","x":12,"y":6,"width":12,"height":6,
+             "properties":{"metrics":[["MLMonitoring","ModelAccuracy"]],"title":"Ground Truth Accuracy","period":3600,"stat":"Average","region":"${AWS::Region}","view":"timeSeries"}},
+            {"type":"metric","x":0,"y":12,"width":12,"height":6,
+             "properties":{"metrics":[["MLMonitoring","KinesisProcessed"],["MLMonitoring","KinesisFailed"]],"title":"Kinesis Throughput","period":300,"stat":"Sum","region":"${AWS::Region}","view":"timeSeries"}}
+          ]
+        }
+
+  LowConfidenceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: LowModelConfidence
+      MetricName: AverageConfidence
+      Namespace: MLMonitoring
+      Statistic: Average
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 0.75
+      ComparisonOperator: LessThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+  HighPSIAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: HighPSIDriftScore
+      MetricName: PSIScore
+      Namespace: MLMonitoring
+      Statistic: Average
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 0.2
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+# ═══════════════════════════════════════════════════════════
+# OUTPUTS
+# ═══════════════════════════════════════════════════════════
+
+Outputs:
+  APIEndpoint:
+    Description: Base API URL
+    Value: !Sub 'https://${MonitoringAPI}.execute-api.${AWS::Region}.amazonaws.com/prod'
+
+  PredictionsEndpoint:
+    Description: POST predictions here
+    Value: !Sub 'https://${MonitoringAPI}.execute-api.${AWS::Region}.amazonaws.com/prod/predictions'
+
+  GroundTruthEndpoint:
+    Description: POST ground truth labels here
+    Value: !Sub 'https://${MonitoringAPI}.execute-api.${AWS::Region}.amazonaws.com/prod/ground-truth'
+
+  ModelConfigEndpoint:
+    Description: GET/POST per-model config
+    Value: !Sub 'https://${MonitoringAPI}.execute-api.${AWS::Region}.amazonaws.com/prod/models/{model_id}/config'
+
+  KinesisStreamName:
+    Description: Kinesis stream for high-volume ingestion
+    Value: !Ref PredictionsStream
+
+  StateMachineArn:
+    Description: Step Functions drift response workflow
+    Value: !Ref DriftResponseStateMachine
+
+  DashboardURL:
+    Description: CloudWatch Dashboard
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=MLMonitoringDashboard'
+
+  S3Bucket:
+    Description: Daily reports bucket
+    Value: !Ref ReportsBucket
+
+  APIKeyId:
+    Description: API Key ID (get value from AWS Console → API Gateway → API Keys)
+    Value: !Ref MonitoringAPIKey

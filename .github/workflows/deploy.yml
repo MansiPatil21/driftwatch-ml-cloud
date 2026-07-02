@@ -1,0 +1,55 @@
+name: Deploy ML Monitoring Pipeline
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        run: pip install pytest boto3
+
+      - name: Run unit tests
+        run: pytest tests/ -v
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Deploy CloudFormation stack
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure/template.yaml \
+            --stack-name ml-monitoring-pipeline \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides AlertEmail=mansican908@gmail.com \
+            --no-fail-on-empty-changeset
+
+      - name: Print stack outputs
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name ml-monitoring-pipeline \
+            --query 'Stacks[0].Outputs' \
+            --output table
