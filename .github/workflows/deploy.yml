@@ -54,6 +54,8 @@ jobs:
             --parameter-overrides AlertEmail=mansican908@gmail.com \
             --no-fail-on-empty-changeset \
             --no-confirm-changeset \
+            --resolve-s3 \
+            --s3-prefix ml-monitoring-pipeline \
             --region us-east-1
 
       - name: Print stack outputs
