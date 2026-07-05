@@ -1,4 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
 Description: 'ML Model Monitoring Pipeline - CSCI 5411 Term Project (Full Feature Set)'
 
 Parameters:
@@ -27,11 +28,20 @@ Resources:
           AttributeType: S
         - AttributeName: timestamp
           AttributeType: S
+        - AttributeName: id
+          AttributeType: S
       KeySchema:
         - AttributeName: model_id
           KeyType: HASH
         - AttributeName: timestamp
           KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: IdIndex
+          KeySchema:
+            - AttributeName: id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
       StreamSpecification:
         StreamViewType: NEW_IMAGE
       TimeToLiveSpecification:
@@ -108,47 +118,31 @@ Resources:
 
   # ═══════════════════════════════════════════════════════════
   # LAMBDA FUNCTIONS
+  # All function code lives in ../src/<name>/handler.py — this is
+  # the single source of truth that is also exercised by tests/.
   # ═══════════════════════════════════════════════════════════
 
   IngestorFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
     Properties:
       FunctionName: ml-prediction-ingestor
+      CodeUri: ../src/ingestor/
       Runtime: python3.11
-      Handler: index.handler
+      Handler: handler.handler
       Role: !Ref LabRoleArn
       Timeout: 30
       Environment:
         Variables:
           TABLE_NAME: !Ref PredictionsTable
-      Code:
-        ZipFile: |
-          import json, boto3, os, uuid
-          from datetime import datetime
-          dynamodb = boto3.resource('dynamodb')
-          def handler(event, context):
-              table = dynamodb.Table(os.environ['TABLE_NAME'])
-              try:
-                  body = json.loads(event.get('body', '{}'))
-              except json.JSONDecodeError:
-                  return {'statusCode': 400, 'body': json.dumps({'error': 'Invalid JSON'})}
-              if not all([body.get('model_id'), body.get('prediction'), body.get('confidence') is not None]):
-                  return {'statusCode': 400, 'body': json.dumps({'error': 'model_id, prediction, confidence required'})}
-              item = {
-                  'model_id': body['model_id'], 'timestamp': datetime.utcnow().isoformat(),
-                  'prediction': body['prediction'], 'confidence': str(body['confidence']),
-                  'id': str(uuid.uuid4())
-              }
-              table.put_item(Item=item)
-              return {'statusCode': 200, 'headers': {'Content-Type': 'application/json'},
-                      'body': json.dumps({'message': 'Prediction logged', 'id': item['id']})}
+          KINESIS_STREAM_NAME: !Ref PredictionsStream
 
   DriftDetectorFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
     Properties:
       FunctionName: ml-drift-detector
+      CodeUri: ../src/drift_detector/
       Runtime: python3.11
-      Handler: index.handler
+      Handler: handler.handler
       Role: !Ref LabRoleArn
       Timeout: 120
       Environment:
@@ -157,258 +151,102 @@ Resources:
           SNS_TOPIC_ARN: !Ref AlertTopic
           CONFIDENCE_THRESHOLD: '0.75'
           MODEL_CONFIG_TABLE: !Ref ModelConfigTable
-      Code:
-        ZipFile: |
-          import json, boto3, os, math
-          from datetime import datetime, timedelta
-          dynamodb = boto3.resource('dynamodb')
-          sns = boto3.client('sns')
-          cloudwatch = boto3.client('cloudwatch')
-          def compute_psi(baseline, current, buckets=10):
-              def hist(vals, edges):
-                  counts = [0]*len(edges)
-                  for v in vals:
-                      for i,e in enumerate(edges):
-                          if v<=e: counts[i]+=1; break
-                      else: counts[-1]+=1
-                  t=sum(counts) or 1
-                  return [c/t for c in counts]
-              edges=[i/buckets for i in range(1,buckets+1)]
-              b=hist(baseline,edges); c=hist(current,edges)
-              return round(sum((ci-bi)*math.log(max(ci,0.0001)/max(bi,0.0001)) for bi,ci in zip(b,c)),4)
-          def handler(event, context):
-              table=dynamodb.Table(os.environ['TABLE_NAME'])
-              threshold=float(os.environ.get('CONFIDENCE_THRESHOLD','0.75'))
-              cutoff=(datetime.utcnow()-timedelta(hours=1)).isoformat()
-              items=table.scan(FilterExpression='#ts > :c',ExpressionAttributeNames={'#ts':'timestamp'},ExpressionAttributeValues={':c':cutoff}).get('Items',[])
-              if not items: return {'statusCode':200,'body':'No predictions'}
-              models={}
-              for i in items: models.setdefault(i.get('model_id','unknown'),[]).append(float(i.get('confidence',0)))
-              alerts=[]
-              for mid,confs in models.items():
-                  avg=sum(confs)/len(confs)
-                  baseline=[0.85+(i%10)*0.01 for i in range(50)]
-                  psi=compute_psi(baseline,confs)
-                  cloudwatch.put_metric_data(Namespace='MLMonitoring',MetricData=[
-                      {'MetricName':'AverageConfidence','Value':avg,'Unit':'None','Dimensions':[{'Name':'ModelId','Value':mid}]},
-                      {'MetricName':'PSIScore','Value':psi,'Unit':'None','Dimensions':[{'Name':'ModelId','Value':mid}]}])
-                  if avg<threshold or psi>0.2:
-                      reasons=[]
-                      if avg<threshold: reasons.append(f'avg confidence {avg:.3f} < {threshold}')
-                      if psi>0.2: reasons.append(f'PSI={psi} > 0.2 (distribution shift)')
-                      sns.publish(TopicArn=os.environ['SNS_TOPIC_ARN'],Subject=f'DRIFT ALERT: {mid}',
-                          Message=f'DRIFT DETECTED\nModel: {mid}\n'+'\n'.join(reasons)+f'\nPredictions: {len(confs)}\nTime: {datetime.utcnow().isoformat()}')
-                      alerts.append(mid)
-              return {'statusCode':200,'body':json.dumps({'alerts_fired':alerts,'models_checked':list(models.keys())})}
+          STATE_MACHINE_ARN: !Ref DriftResponseStateMachine
 
   AnomalyDetectorFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
     Properties:
       FunctionName: ml-anomaly-detector
+      CodeUri: ../src/anomaly_detector/
       Runtime: python3.11
-      Handler: index.handler
+      Handler: handler.handler
       Role: !Ref LabRoleArn
       Timeout: 60
       Environment:
         Variables:
           TABLE_NAME: !Ref PredictionsTable
           SNS_TOPIC_ARN: !Ref AlertTopic
-      Code:
-        ZipFile: |
-          import json, boto3, os
-          from datetime import datetime, timedelta
-          dynamodb=boto3.resource('dynamodb'); sns=boto3.client('sns'); cloudwatch=boto3.client('cloudwatch')
-          def handler(event, context):
-              table=dynamodb.Table(os.environ['TABLE_NAME'])
-              cutoff=(datetime.utcnow()-timedelta(minutes=15)).isoformat()
-              volume=len(table.scan(FilterExpression='#ts > :c',ExpressionAttributeNames={'#ts':'timestamp'},ExpressionAttributeValues={':c':cutoff}).get('Items',[]))
-              cloudwatch.put_metric_data(Namespace='MLMonitoring',MetricData=[{'MetricName':'PredictionVolume','Value':volume,'Unit':'Count'}])
-              if volume==0:
-                  sns.publish(TopicArn=os.environ['SNS_TOPIC_ARN'],Subject='ANOMALY: No predictions in 15 min',
-                      Message=f'No predictions received in last 15 minutes.\nModel may be offline.\nTime: {datetime.utcnow().isoformat()}')
-              return {'statusCode':200,'body':json.dumps({'volume_last_15min':volume,'alert_fired':volume==0})}
 
   ReportGeneratorFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
     Properties:
       FunctionName: ml-report-generator
+      CodeUri: ../src/report_generator/
       Runtime: python3.11
-      Handler: index.handler
+      Handler: handler.handler
       Role: !Ref LabRoleArn
       Timeout: 120
       Environment:
         Variables:
           TABLE_NAME: !Ref PredictionsTable
           BUCKET_NAME: !Ref ReportsBucket
-          GROUND_TRUTH_TABLE: !Ref GroundTruthTable
-      Code:
-        ZipFile: |
-          import json, boto3, os
-          from datetime import datetime, timedelta
-          from collections import Counter
-          dynamodb=boto3.resource('dynamodb'); s3=boto3.client('s3')
-          def handler(event, context):
-              table=dynamodb.Table(os.environ['TABLE_NAME'])
-              gt_table=dynamodb.Table(os.environ['GROUND_TRUTH_TABLE'])
-              cutoff=(datetime.utcnow()-timedelta(hours=24)).isoformat()
-              items=table.scan(FilterExpression='#ts > :c',ExpressionAttributeNames={'#ts':'timestamp'},ExpressionAttributeValues={':c':cutoff}).get('Items',[])
-              confs=[float(i.get('confidence',0)) for i in items]
-              preds=[i.get('prediction','') for i in items]
-              gt_items=gt_table.scan().get('Items',[])
-              accuracy=sum(1 for r in gt_items if r.get('correct'))/len(gt_items) if gt_items else None
-              report={'date':datetime.utcnow().strftime('%Y-%m-%d'),'total_predictions':len(items),
-                  'avg_confidence':round(sum(confs)/len(confs),3) if confs else 0,
-                  'min_confidence':round(min(confs),3) if confs else 0,
-                  'max_confidence':round(max(confs),3) if confs else 0,
-                  'prediction_distribution':dict(Counter(preds)),
-                  'ground_truth_accuracy':round(accuracy,3) if accuracy else 'no ground truth yet',
-                  'generated_at':datetime.utcnow().isoformat()}
-              key=f"reports/{report['date']}/daily-report.json"
-              s3.put_object(Bucket=os.environ['BUCKET_NAME'],Key=key,Body=json.dumps(report,indent=2),ContentType='application/json')
-              return {'statusCode':200,'body':json.dumps(report)}
 
   KinesisProcessorFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
     Properties:
       FunctionName: ml-kinesis-processor
+      CodeUri: ../src/kinesis_processor/
       Runtime: python3.11
-      Handler: index.handler
+      Handler: handler.handler
       Role: !Ref LabRoleArn
       Timeout: 60
       Environment:
         Variables:
           TABLE_NAME: !Ref PredictionsTable
-      Code:
-        ZipFile: |
-          import json, boto3, os, uuid, base64
-          from datetime import datetime
-          dynamodb=boto3.resource('dynamodb'); cloudwatch=boto3.client('cloudwatch')
-          def handler(event, context):
-              table=dynamodb.Table(os.environ['TABLE_NAME'])
-              processed=0; failed=0; items=[]
-              for record in event.get('Records',[]):
-                  try:
-                      body=json.loads(base64.b64decode(record['kinesis']['data']).decode('utf-8'))
-                      items.append({'model_id':body.get('model_id','unknown'),'timestamp':datetime.utcnow().isoformat(),
-                          'prediction':body.get('prediction',''),'confidence':str(body.get('confidence',0)),
-                          'id':str(uuid.uuid4()),'source':'kinesis'})
-                      processed+=1
-                  except Exception as e:
-                      print(f"Error: {e}"); failed+=1
-              with table.batch_writer() as batch:
-                  for item in items: batch.put_item(Item=item)
-              cloudwatch.put_metric_data(Namespace='MLMonitoring',MetricData=[
-                  {'MetricName':'KinesisProcessed','Value':processed,'Unit':'Count'},
-                  {'MetricName':'KinesisFailed','Value':failed,'Unit':'Count'}])
-              return {'statusCode':200,'processed':processed,'failed':failed}
 
   GroundTruthFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
     Properties:
       FunctionName: ml-ground-truth
+      CodeUri: ../src/ground_truth/
       Runtime: python3.11
-      Handler: index.handler
+      Handler: handler.handler
       Role: !Ref LabRoleArn
       Timeout: 30
       Environment:
         Variables:
           TABLE_NAME: !Ref PredictionsTable
           GROUND_TRUTH_TABLE: !Ref GroundTruthTable
-      Code:
-        ZipFile: |
-          import json, boto3, os
-          from datetime import datetime
-          dynamodb=boto3.resource('dynamodb'); cloudwatch=boto3.client('cloudwatch')
-          def handler(event, context):
-              p_table=dynamodb.Table(os.environ['TABLE_NAME'])
-              gt_table=dynamodb.Table(os.environ['GROUND_TRUTH_TABLE'])
-              try: body=json.loads(event.get('body') or '{}')
-              except: return {'statusCode':400,'body':json.dumps({'error':'Invalid JSON'})}
-              pid=body.get('prediction_id'); mid=body.get('model_id'); actual=body.get('actual_label')
-              if not all([pid,mid,actual]): return {'statusCode':400,'body':json.dumps({'error':'prediction_id, model_id, actual_label required'})}
-              matches=p_table.scan(FilterExpression='#id = :pid',ExpressionAttributeNames={'#id':'id'},ExpressionAttributeValues={':pid':pid}).get('Items',[])
-              if not matches: return {'statusCode':404,'body':json.dumps({'error':f'Prediction {pid} not found'})}
-              predicted=matches[0].get('prediction','')
-              correct=predicted==actual
-              gt_table.put_item(Item={'prediction_id':pid,'model_id':mid,'predicted':predicted,'actual':actual,'correct':correct,'timestamp':datetime.utcnow().isoformat()})
-              all_gt=gt_table.scan(FilterExpression='model_id = :m',ExpressionAttributeValues={':m':mid}).get('Items',[])
-              if all_gt:
-                  acc=sum(1 for r in all_gt if r.get('correct'))/len(all_gt)
-                  cloudwatch.put_metric_data(Namespace='MLMonitoring',MetricData=[{'MetricName':'ModelAccuracy','Value':acc,'Unit':'None','Dimensions':[{'Name':'ModelId','Value':mid}]}])
-              return {'statusCode':200,'headers':{'Content-Type':'application/json'},
-                  'body':json.dumps({'message':'Ground truth recorded','correct':correct,'predicted':predicted,'actual':actual})}
 
   ModelConfigFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
     Properties:
       FunctionName: ml-model-config
+      CodeUri: ../src/model_config/
       Runtime: python3.11
-      Handler: index.handler
+      Handler: handler.handler
       Role: !Ref LabRoleArn
       Timeout: 30
       Environment:
         Variables:
           MODEL_CONFIG_TABLE: !Ref ModelConfigTable
-      Code:
-        ZipFile: |
-          import json, boto3, os
-          dynamodb=boto3.resource('dynamodb')
-          def handler(event, context):
-              table=dynamodb.Table(os.environ['MODEL_CONFIG_TABLE'])
-              method=event.get('httpMethod','GET')
-              mid=(event.get('pathParameters') or {}).get('model_id','')
-              if not mid: return {'statusCode':400,'body':json.dumps({'error':'model_id required'})}
-              if method=='GET':
-                  item=table.get_item(Key={'model_id':mid}).get('Item')
-                  return {'statusCode':200 if item else 404,'body':json.dumps(item or {'error':'Not found'})}
-              if method=='POST':
-                  body=json.loads(event.get('body') or '{}')
-                  item={'model_id':mid,'confidence_threshold':str(body.get('confidence_threshold',0.75)),
-                      'psi_threshold':str(body.get('psi_threshold',0.2)),'description':body.get('description','')}
-                  table.put_item(Item=item)
-                  return {'statusCode':200,'body':json.dumps({'message':f'Config saved for {mid}'})}
-              return {'statusCode':405,'body':json.dumps({'error':'Method not allowed'})}
 
   DriftResponderFunction:
-    Type: AWS::Lambda::Function
+    Type: AWS::Serverless::Function
     Properties:
       FunctionName: ml-drift-responder
+      CodeUri: ../src/drift_responder/
       Runtime: python3.11
-      Handler: index.handler
+      Handler: handler.handler
       Role: !Ref LabRoleArn
       Timeout: 30
       Environment:
         Variables:
           SNS_TOPIC_ARN: !Ref AlertTopic
           TABLE_NAME: !Ref PredictionsTable
-      Code:
-        ZipFile: |
-          import json, boto3, os
-          from datetime import datetime, timedelta
-          dynamodb=boto3.resource('dynamodb'); sns=boto3.client('sns')
-          def handler(event, context):
-              mid=event.get('model_id','unknown'); stage=event.get('stage','check'); hours=event.get('drift_hours',1)
-              topic=os.environ['SNS_TOPIC_ARN']
-              if stage=='check':
-                  still=_drifting(mid)
-                  return {'model_id':mid,'stage':'escalate' if still else 'resolve','drift_hours':hours+1,'still_drifting':still}
-              if stage=='escalate':
-                  sns.publish(TopicArn=topic,Subject=f'ESCALATION: {mid} drifting {hours}h',
-                      Message=f'Model {mid} has been drifting for {hours} hours.\nImmediate retraining recommended.\n{datetime.utcnow().isoformat()}')
-                  return {'model_id':mid,'stage':'check','drift_hours':hours,'escalated':True}
-              if stage=='resolve':
-                  sns.publish(TopicArn=topic,Subject=f'RESOLVED: {mid} drift cleared',
-                      Message=f'Model {mid} returned to healthy confidence.\nDrift lasted ~{hours} hours.\n{datetime.utcnow().isoformat()}')
-                  return {'model_id':mid,'resolved':True}
-              return {'error':'unknown stage'}
-          def _drifting(mid):
-              try:
-                  table=dynamodb.Table(os.environ['TABLE_NAME'])
-                  cutoff=(datetime.utcnow()-timedelta(hours=1)).isoformat()
-                  items=table.scan(FilterExpression='model_id=:m AND #ts>:c',ExpressionAttributeNames={'#ts':'timestamp'},ExpressionAttributeValues={':m':mid,':c':cutoff}).get('Items',[])
-                  if not items: return False
-                  return sum(float(i.get('confidence',0)) for i in items)/len(items)<0.75
-              except: return True
+
+  AccuracyPublisherFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ml-accuracy-publisher
+      CodeUri: ../src/accuracy_publisher/
+      Runtime: python3.11
+      Handler: handler.handler
+      Role: !Ref LabRoleArn
+      Timeout: 60
+      Environment:
+        Variables:
+          GROUND_TRUTH_TABLE: !Ref GroundTruthTable
 
   # ═══════════════════════════════════════════════════════════
   # KINESIS → LAMBDA TRIGGER
@@ -650,8 +488,8 @@ Resources:
   DriftDetectorRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: drift-detector-hourly
-      ScheduleExpression: rate(1 hour)
+      Name: drift-detector-5min
+      ScheduleExpression: rate(5 minutes)
       State: ENABLED
       Targets:
         - Id: DriftDetectorTarget
@@ -682,6 +520,24 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
       SourceArn: !GetAtt AnomalyDetectorRule.Arn
+
+  AccuracyPublisherRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: accuracy-publisher-15min
+      ScheduleExpression: rate(15 minutes)
+      State: ENABLED
+      Targets:
+        - Id: AccuracyPublisherTarget
+          Arn: !GetAtt AccuracyPublisherFunction.Arn
+
+  AccuracyPublisherPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AccuracyPublisherFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AccuracyPublisherRule.Arn
 
   ReportGeneratorRule:
     Type: AWS::Events::Rule

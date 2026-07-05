@@ -38,14 +38,21 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: us-east-1
 
-      - name: Deploy CloudFormation stack
+      - name: Install AWS SAM CLI
+        run: pip install aws-sam-cli
+
+      - name: Build Lambda packages
+        run: sam build --template-file infrastructure/template.yaml
+
+      - name: Deploy with SAM
         run: |
-          aws cloudformation deploy \
-            --template-file infrastructure/template.yaml \
+          sam deploy \
             --stack-name ml-monitoring-pipeline \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides AlertEmail=mansican908@gmail.com \
-            --no-fail-on-empty-changeset
+            --no-fail-on-empty-changeset \
+            --no-confirm-changeset \
+            --region us-east-1
 
       - name: Print stack outputs
         run: |

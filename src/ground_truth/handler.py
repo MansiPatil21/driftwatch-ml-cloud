@@ -2,9 +2,9 @@ import json
 import boto3
 import os
 from datetime import datetime
+from boto3.dynamodb.conditions import Key
 
 dynamodb = boto3.resource('dynamodb')
-cloudwatch = boto3.client('cloudwatch')
 
 
 def handler(event, context):
@@ -12,8 +12,9 @@ def handler(event, context):
     POST /ground-truth
     Body: { "prediction_id": "abc-123", "model_id": "spam-detector-v1", "actual_label": "spam" }
 
-    Matches against the original prediction in DynamoDB and calculates real accuracy.
-    Publishes accuracy metrics to CloudWatch.
+    Matches against the original prediction in DynamoDB and records the outcome.
+    Aggregate accuracy is computed and published to CloudWatch separately by
+    the scheduled ml-accuracy-publisher Lambda, not here.
     """
     predictions_table   = dynamodb.Table(os.environ['TABLE_NAME'])
     ground_truth_table  = dynamodb.Table(os.environ['GROUND_TRUTH_TABLE'])
@@ -30,13 +31,12 @@ def handler(event, context):
     if not all([prediction_id, model_id, actual_label]):
         return _response(400, {'error': 'prediction_id, model_id, and actual_label are required'})
 
-    # Find the original prediction by scanning for matching id
-    scan_resp = predictions_table.scan(
-        FilterExpression='#id = :pid',
-        ExpressionAttributeNames={'#id': 'id'},
-        ExpressionAttributeValues={':pid': prediction_id}
+    # Find the original prediction via the IdIndex GSI (avoids a full table scan)
+    query_resp = predictions_table.query(
+        IndexName='IdIndex',
+        KeyConditionExpression=Key('id').eq(prediction_id)
     )
-    matches = scan_resp.get('Items', [])
+    matches = query_resp.get('Items', [])
 
     if not matches:
         return _response(404, {'error': f'Prediction {prediction_id} not found'})
@@ -54,26 +54,6 @@ def handler(event, context):
         'correct':       is_correct,
         'timestamp':     datetime.utcnow().isoformat()
     })
-
-    # Calculate rolling accuracy for this model from recent ground truth records
-    gt_scan = ground_truth_table.scan(
-        FilterExpression='model_id = :mid',
-        ExpressionAttributeValues={':mid': model_id}
-    )
-    all_records = gt_scan.get('Items', [])
-    if all_records:
-        accuracy = sum(1 for r in all_records if r.get('correct')) / len(all_records)
-
-        cloudwatch.put_metric_data(
-            Namespace='MLMonitoring',
-            MetricData=[{
-                'MetricName': 'ModelAccuracy',
-                'Value': accuracy,
-                'Unit': 'None',
-                'Dimensions': [{'Name': 'ModelId', 'Value': model_id}]
-            }]
-        )
-        print(f"[{model_id}] accuracy={accuracy:.3f} from {len(all_records)} ground truth records")
 
     return _response(200, {
         'message': 'Ground truth recorded',

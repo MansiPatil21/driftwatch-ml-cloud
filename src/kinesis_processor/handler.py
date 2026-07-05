@@ -1,12 +1,15 @@
 import json
 import boto3
 import os
+import time
 import uuid
 import base64
 from datetime import datetime
 
 dynamodb = boto3.resource('dynamodb')
 cloudwatch = boto3.client('cloudwatch')
+
+PREDICTION_RETENTION_DAYS = 90
 
 
 def handler(event, context):
@@ -33,7 +36,8 @@ def handler(event, context):
                 'prediction': body.get('prediction', ''),
                 'confidence': str(body.get('confidence', 0)),
                 'id':         str(uuid.uuid4()),
-                'source':     'kinesis'
+                'source':     'kinesis',
+                'ttl':        int(time.time()) + PREDICTION_RETENTION_DAYS * 86400
             }
             items_to_write.append(item)
             processed += 1
@@ -52,8 +56,8 @@ def handler(event, context):
     cloudwatch.put_metric_data(
         Namespace='MLMonitoring',
         MetricData=[
-            {'MetricName': 'KinesisRecordsProcessed', 'Value': processed, 'Unit': 'Count'},
-            {'MetricName': 'KinesisRecordsFailed',    'Value': failed,    'Unit': 'Count'},
+            {'MetricName': 'KinesisProcessed', 'Value': processed, 'Unit': 'Count'},
+            {'MetricName': 'KinesisFailed',    'Value': failed,    'Unit': 'Count'},
         ]
     )
 

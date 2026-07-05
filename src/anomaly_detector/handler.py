@@ -23,7 +23,7 @@ def handler(event, context):
     items = response.get('Items', [])
     volume = len(items)
 
-    print(f"Prediction volume in last 15 min: {volume}")
+    print(f"Prediction volume in last 15 minutes: {volume}")
 
     # Push volume metric to CloudWatch
     cloudwatch.put_metric_data(

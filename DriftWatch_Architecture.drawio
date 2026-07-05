@@ -1,0 +1,422 @@
+<mxfile host="app.diagrams.net" modified="2026-07-05T00:00:00.000Z" agent="claude-code" version="24.0.0" type="device">
+  <diagram name="DriftWatch Architecture" id="driftwatch-arch">
+    <mxGraphModel dx="1400" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1780" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="DriftWatch — Cloud Architecture Diagram" style="text;html=1;fontSize=20;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="20" y="10" width="1460" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Row backgrounds -->
+        <mxCell id="bg1" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#EAF2FB;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="10" y="60" width="1480" height="230" as="geometry" />
+        </mxCell>
+        <mxCell id="bg2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FDF3E7;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="10" y="300" width="1480" height="310" as="geometry" />
+        </mxCell>
+        <mxCell id="bg3" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FDF3E7;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="10" y="620" width="1480" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="bg4" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FDF3E7;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="10" y="850" width="1480" height="430" as="geometry" />
+        </mxCell>
+        <mxCell id="bg5" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FCEAF3;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="10" y="1280" width="1480" height="250" as="geometry" />
+        </mxCell>
+
+        <!-- Row labels -->
+        <mxCell id="lbl1" value="1 · CLIENT ENTRY" style="text;html=1;fontSize=12;fontStyle=1;fontColor=#3D6FA5;align=left;" vertex="1" parent="1">
+          <mxGeometry x="25" y="65" width="260" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lbl2" value="2 · SYNCHRONOUS API HANDLERS" style="text;html=1;fontSize=12;fontStyle=1;fontColor=#B5651D;align=left;" vertex="1" parent="1">
+          <mxGeometry x="25" y="305" width="320" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lbl3" value="3 · ASYNC STREAM PROCESSING" style="text;html=1;fontSize=12;fontStyle=1;fontColor=#B5651D;align=left;" vertex="1" parent="1">
+          <mxGeometry x="25" y="625" width="320" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lbl4" value="4 · SCHEDULED MONITORING (EventBridge)" style="text;html=1;fontSize=12;fontStyle=1;fontColor=#B5651D;align=left;" vertex="1" parent="1">
+          <mxGeometry x="25" y="855" width="400" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="lbl5" value="5 · ALERTING &amp; AUTOMATED RESPONSE" style="text;html=1;fontSize=12;fontStyle=1;fontColor=#A31558;align=left;" vertex="1" parent="1">
+          <mxGeometry x="25" y="1285" width="360" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ ROW 1: Client entry ═══════ -->
+        <mxCell id="user" value="User" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#232F3E;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.user;" vertex="1" parent="1">
+          <mxGeometry x="60" y="110" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="streamlit" value="Streamlit Dashboard&#10;(local control plane, not AWS)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DC3545;strokeColor=none;fontColor=#ffffff;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="215" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="apigw" value="API Gateway&#10;(REST · prod)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.api_gateway;" vertex="1" parent="1">
+          <mxGeometry x="320" y="140" width="70" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ ROW 2: Synchronous API handlers ═══════ -->
+        <mxCell id="ingest" value="ml-prediction-ingestor" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#F58536;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="330" y="370" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="gt" value="ml-ground-truth" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#F58536;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="540" y="370" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="mc" value="ml-model-config" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#F58536;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="750" y="370" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ddb" value="DynamoDB&#10;(3 tables: predictions, ground-truth, model-config)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#2E27AD;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.dynamodb;" vertex="1" parent="1">
+          <mxGeometry x="540" y="498" width="70" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ ROW 3: Async stream processing ═══════ -->
+        <mxCell id="kinesis" value="ml-predictions-stream&#10;(1 shard · 24h retention)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#8C4FFF;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.kinesis_data_streams;" vertex="1" parent="1">
+          <mxGeometry x="80" y="690" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="kproc" value="ml-kinesis-processor" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#F58536;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="330" y="690" width="70" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ ROW 4: Scheduled monitoring ═══════ -->
+        <mxCell id="eb" value="EventBridge&#10;(4 schedule rules)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.eventbridge;" vertex="1" parent="1">
+          <mxGeometry x="680" y="870" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="dd" value="ml-drift-detector" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#F58536;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="365" y="1100" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ad" value="ml-anomaly-detector" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#F58536;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="575" y="1100" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ap" value="ml-accuracy-publisher" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#F58536;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="785" y="1100" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="rg" value="ml-report-generator" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#F58536;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="995" y="1100" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="cw" value="CloudWatch&#10;(Dashboard + 2 Alarms)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#0B7A75;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.cloudwatch;" vertex="1" parent="1">
+          <mxGeometry x="1250" y="940" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="S3&#10;(audit-reports/)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#277116;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.simple_storage_service;" vertex="1" parent="1">
+          <mxGeometry x="1250" y="1080" width="70" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ ROW 5: Alerting and automated response ═══════ -->
+        <mxCell id="email" value="Email&#10;(subscribed engineer)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3CD;strokeColor=#B08D00;fontColor=#333333;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="330" y="1355" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="sns" value="SNS&#10;(ml-drift-alerts)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.simple_notification_service;" vertex="1" parent="1">
+          <mxGeometry x="575" y="1350" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sfn" value="Step Functions&#10;(ml-drift-response-workflow)" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.step_functions;" vertex="1" parent="1">
+          <mxGeometry x="785" y="1350" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="dr" value="ml-drift-responder" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#F58536;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=11;fontStyle=1;aspect=fixed;shape=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="1350" width="70" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Deployment note -->
+        <mxCell id="deploy" value="Deployment: AWS SAM CLI&#10;sam build &amp;&amp; sam deploy&#10;provisions all resources above" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCE8F7;strokeColor=#3D6FA5;fontColor=#1B3A5C;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="1545" width="270" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ Edges: Row 1 ═══════ -->
+        <mxCell id="e1b" value="uses" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#333333;endArrow=block;fontSize=9;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="user" target="streamlit">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e1c" value="invoke (x-api-key)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3D6FA5;endArrow=block;fontSize=9;" edge="1" parent="1" source="streamlit" target="apigw">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#333333;endArrow=block;fontSize=9;exitX=1;exitY=0.3;entryX=0;entryY=0.3;" edge="1" parent="1" source="user" target="apigw">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ Edges: Row 2 (apigw -> handlers, routed through the large empty 210-370 gap) ═══════ -->
+        <mxCell id="e2" value="POST /predictions" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#E7157B;endArrow=block;fontSize=9;exitX=0.4;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="apigw" target="ingest">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="345" y="250" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e3" value="POST /ground-truth" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#E7157B;endArrow=block;fontSize=9;exitX=0.6;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="apigw" target="gt">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="365" y="300" />
+              <mxPoint x="575" y="300" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e4" value="GET/POST /models/{id}/config" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#E7157B;endArrow=block;fontSize=9;exitX=0.8;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="apigw" target="mc">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="376" y="350" />
+              <mxPoint x="785" y="350" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ═══════ Edges: Row 2 handlers -> DynamoDB (below 468, above 498 — clear of every label) ═══════ -->
+        <mxCell id="e5" value="PutItem" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#F58536;endArrow=block;fontSize=9;exitX=0.5;exitY=1;entryX=0;entryY=0.3;" edge="1" parent="1" source="ingest" target="ddb">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="365" y="458" />
+              <mxPoint x="540" y="519" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e6" value="PutItem" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#F58536;endArrow=block;fontSize=9;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="gt" target="ddb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="Get/PutItem" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#F58536;endArrow=block;fontSize=9;exitX=0.5;exitY=1;entryX=1;entryY=0.7;" edge="1" parent="1" source="mc" target="ddb">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="785" y="488" />
+              <mxPoint x="610" y="546" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ═══════ Edges: Row 3 ═══════ -->
+        <mxCell id="e8" value="PutRecord" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#F58536;endArrow=block;fontSize=9;exitX=0;exitY=0.5;entryX=0.5;entryY=0;" edge="1" parent="1" source="ingest" target="kinesis">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="115" y="405" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e9" value="event source mapping" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#8C4FFF;endArrow=block;fontSize=9;" edge="1" parent="1" source="kinesis" target="kproc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="PutItem (aggregated)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#F58536;endArrow=block;fontSize=9;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" parent="1" source="kproc" target="ddb">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="365" y="630" />
+              <mxPoint x="575" y="630" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ═══════ Edges: Row 4 — EventBridge -> each Lambda, fanned out through the wide 968-1100 gap (30px between labels) ═══════ -->
+        <mxCell id="e11" value="rate(5 min)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#E7157B;endArrow=block;fontSize=9;exitX=0.2;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="eb" target="dd">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="695" y="1005" />
+              <mxPoint x="400" y="1005" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e12" value="rate(15 min)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#E7157B;endArrow=block;fontSize=9;exitX=0.35;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="eb" target="ad">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="700" y="1035" />
+              <mxPoint x="610" y="1035" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e12b" value="rate(15 min)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#E7157B;endArrow=block;fontSize=9;exitX=0.65;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="eb" target="ap">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="705" y="1065" />
+              <mxPoint x="820" y="1065" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e13" value="cron(daily)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#E7157B;endArrow=block;fontSize=9;exitX=0.8;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="eb" target="rg">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="710" y="1090" />
+              <mxPoint x="1030" y="1090" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ═══════ Edges: Row 4 Lambdas -> CloudWatch (PutMetricData), routed just under EventBridge's own label, stopping at cw's left edge ═══════ -->
+        <mxCell id="e17" value="PutMetricData" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#0B7A75;dashed=1;endArrow=block;fontSize=9;exitX=0.5;exitY=0;entryX=0;entryY=0.15;" edge="1" parent="1" source="dd" target="cw">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="415" y="950" />
+              <mxPoint x="1250" y="950" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e18" value="PutMetricData" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#0B7A75;dashed=1;endArrow=block;fontSize=9;exitX=0.5;exitY=0;entryX=0;entryY=0.35;" edge="1" parent="1" source="ad" target="cw">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="625" y="965" />
+              <mxPoint x="1250" y="965" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e19" value="PutMetricData (ModelAccuracy)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#0B7A75;dashed=1;endArrow=block;fontSize=9;exitX=0.5;exitY=0;entryX=0;entryY=0.55;" edge="1" parent="1" source="ap" target="cw">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="835" y="980" />
+              <mxPoint x="1250" y="980" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e20" value="PutObject" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#277116;endArrow=block;fontSize=9;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="rg" target="s3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ Edges: Row 4 Lambdas -> DynamoDB (Scan/read), via shared right-side lane, well below s3 and each other's labels ═══════ -->
+        <mxCell id="e14" value="Scan (last 1h)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#F58536;endArrow=block;fontSize=9;exitX=0.5;exitY=1;entryX=1;entryY=0.17;" edge="1" parent="1" source="dd" target="ddb">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="385" y="1215" />
+              <mxPoint x="1440" y="1215" />
+              <mxPoint x="1440" y="505" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e15" value="Scan" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#F58536;endArrow=block;fontSize=9;exitX=0.5;exitY=1;entryX=1;entryY=0.39;" edge="1" parent="1" source="ad" target="ddb">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="595" y="1232" />
+              <mxPoint x="1440" y="1232" />
+              <mxPoint x="1440" y="525" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e15b" value="Scan" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#F58536;endArrow=block;fontSize=9;exitX=0.5;exitY=1;entryX=1;entryY=0.6;" edge="1" parent="1" source="ap" target="ddb">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="805" y="1249" />
+              <mxPoint x="1440" y="1249" />
+              <mxPoint x="1440" y="545" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e16" value="Scan" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#F58536;endArrow=block;fontSize=9;exitX=0.5;exitY=1;entryX=1;entryY=0.81;" edge="1" parent="1" source="rg" target="ddb">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1015" y="1266" />
+              <mxPoint x="1440" y="1266" />
+              <mxPoint x="1440" y="565" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ═══════ Edges: Row 5 ═══════ -->
+        <mxCell id="e21" value="Publish (DRIFT ALERT)" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#CC0000;endArrow=block;fontSize=9;exitX=0.65;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="dd" target="sns">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="415" y="1260" />
+              <mxPoint x="610" y="1260" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e22" value="email" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#CC0000;endArrow=block;fontSize=9;" edge="1" parent="1" source="sns" target="email">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e23" value="StartExecution" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#A31558;endArrow=block;fontSize=9;exitX=0.85;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="dd" target="sfn">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="425" y="1270" />
+              <mxPoint x="820" y="1270" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e24" value="invoke task" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#A31558;endArrow=block;fontSize=9;" edge="1" parent="1" source="sfn" target="dr">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════ Legend: real icon swatches + labels, 4 columns × 3 rows ═══════ -->
+        <mxCell id="legend_bg" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#CCCCCC;" vertex="1" parent="1">
+          <mxGeometry x="20" y="1545" width="1120" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_title" value="Legend" style="text;html=1;fontSize=13;fontStyle=1;fontColor=#333333;align=left;" vertex="1" parent="1">
+          <mxGeometry x="35" y="1552" width="200" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- Row 1 -->
+        <mxCell id="lg_lambda_i" value="" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#F58536;strokeColor=none;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.lambda;" vertex="1" parent="1">
+          <mxGeometry x="35" y="1580" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_lambda_t" value="Lambda — compute (8 functions)" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1580" width="230" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_apigw_i" value="" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.api_gateway;" vertex="1" parent="1">
+          <mxGeometry x="310" y="1580" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_apigw_t" value="API Gateway — integration (REST)" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="345" y="1580" width="230" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_ddb_i" value="" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#2E27AD;strokeColor=none;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.dynamodb;" vertex="1" parent="1">
+          <mxGeometry x="585" y="1580" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_ddb_t" value="DynamoDB — database (3 tables)" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="620" y="1580" width="230" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_s3_i" value="" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#277116;strokeColor=none;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.simple_storage_service;" vertex="1" parent="1">
+          <mxGeometry x="860" y="1580" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_s3_t" value="S3 — object storage" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="895" y="1580" width="230" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- Row 2 -->
+        <mxCell id="lg_kin_i" value="" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#8C4FFF;strokeColor=none;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.kinesis_data_streams;" vertex="1" parent="1">
+          <mxGeometry x="35" y="1632" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_kin_t" value="Kinesis — streaming / analytics" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1632" width="230" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_eb_i" value="" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.eventbridge;" vertex="1" parent="1">
+          <mxGeometry x="310" y="1632" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_eb_t" value="EventBridge — scheduling" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="345" y="1632" width="230" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_sns_i" value="" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.simple_notification_service;" vertex="1" parent="1">
+          <mxGeometry x="585" y="1632" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_sns_t" value="SNS — email alerting" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="620" y="1632" width="230" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_sfn_i" value="" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#E7157B;strokeColor=none;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.step_functions;" vertex="1" parent="1">
+          <mxGeometry x="860" y="1632" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_sfn_t" value="Step Functions — orchestration" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="895" y="1632" width="230" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- Row 3 -->
+        <mxCell id="lg_cw_i" value="" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#0B7A75;strokeColor=none;dashed=0;html=1;aspect=fixed;shape=mxgraph.aws4.cloudwatch;" vertex="1" parent="1">
+          <mxGeometry x="35" y="1684" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_cw_t" value="CloudWatch — monitoring" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="70" y="1684" width="230" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_nonaws_i" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DC3545;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="310" y="1684" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_nonaws_t" value="Non-AWS component (Streamlit, Email)" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="345" y="1684" width="230" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_solid_i" value="" style="shape=line;html=1;strokeWidth=2;strokeColor=#F58536;" vertex="1" parent="1">
+          <mxGeometry x="585" y="1696" width="32" height="4" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_solid_t" value="Data / control flow (solid)" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="625" y="1684" width="230" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lg_dashed_i" value="" style="shape=line;html=1;strokeWidth=2;strokeColor=#0B7A75;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="860" y="1696" width="32" height="4" as="geometry" />
+        </mxCell>
+        <mxCell id="lg_dashed_t" value="Metric publish (dashed, async)" style="text;html=1;fontSize=10;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="900" y="1684" width="230" height="28" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
