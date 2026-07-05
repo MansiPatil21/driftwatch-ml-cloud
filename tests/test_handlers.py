@@ -11,8 +11,9 @@ os.environ['BUCKET_NAME'] = 'ml-monitoring-reports-123456789'
 
 class TestIngestor(unittest.TestCase):
 
+    @patch('boto3.client')
     @patch('boto3.resource')
-    def test_valid_prediction_returns_200(self, mock_boto):
+    def test_valid_prediction_returns_200(self, mock_boto, mock_client):
         mock_table = MagicMock()
         mock_boto.return_value.Table.return_value = mock_table
 
@@ -32,8 +33,9 @@ class TestIngestor(unittest.TestCase):
         self.assertIn('id', body)
         self.assertEqual(body['message'], 'Prediction logged')
 
+    @patch('boto3.client')
     @patch('boto3.resource')
-    def test_missing_fields_returns_400(self, mock_boto):
+    def test_missing_fields_returns_400(self, mock_boto, mock_client):
         from src.ingestor.handler import handler
 
         event = {'body': json.dumps({'model_id': 'spam-detector-v1'})}
